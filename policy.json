@@ -1,0 +1,37 @@
+{
+  "roles": {
+    "Engineering": {
+      "allowed_systems": ["Slack", "Jira", "GitHub", "AWS"],
+      "max_hardware_budget": 3000
+    },
+    "Finance": {
+      "allowed_systems": ["Slack", "Jira", "NetSuite", "Excel"],
+      "max_hardware_budget": 2000
+    },
+    "Interns": {
+      "allowed_systems": ["Slack", "Jira"],
+      "max_hardware_budget": 1500
+    },
+    "Security": {
+      "allowed_systems": ["*"],
+      "can_revoke_access": true
+    }
+  },
+  "sensitive_actions": {
+    "AWS": {
+      "write_access": "REQUIRES_APPROVAL",
+      "admin_access": "DENY"
+    },
+    "Okta": {
+      "create_user": "REQUIRES_APPROVAL",
+      "delete_user": "REQUIRES_APPROVAL",
+      "assign_admin": "DENY"
+    }
+  },
+  "system_specific_rules": {
+    "Slack": {
+      "auto_approve_channels": ["#general", "#random", "#social", "#announcements"],
+      "restricted_channels": ["#executive-confidential", "#hr-sensitive"]
+    }
+  }
+}
