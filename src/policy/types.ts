@@ -4,19 +4,18 @@ export interface RolePolicy {
   can_revoke_access?: boolean;
 }
 
-export interface SlackRules {
-  auto_approve_channels: string[];
-  restricted_channels: string[];
-}
-
-export interface SystemSpecificRules {
-  Slack?: SlackRules;
+export interface ServiceConfig {
+  actions: string[];
+  resources: string[];
+  sensitive_actions?: Record<string, "REQUIRES_APPROVAL" | "DENY">;
+  // Slack-specific
+  auto_approve_channels?: string[];
+  restricted_channels?: string[];
 }
 
 export interface Policy {
+  services: Record<string, ServiceConfig>;
   roles: Record<string, RolePolicy>;
-  sensitive_actions: Record<string, Record<string, string>>;
-  system_specific_rules?: SystemSpecificRules;
 }
 
 export type PolicyResult =

@@ -4,13 +4,11 @@ export type ActionType =
   | "REVOKE_ACCESS"
   | "UNKNOWN";
 
-export type AccessLevel = "read" | "write" | "admin" | null;
-
 export interface ParsedIntent {
   action_type: ActionType;
   target_system: string | null;
   target_resource: string | null;
-  access_level: AccessLevel;
+  requested_action: string | null;
   target_user?: string;
   justification: string | null;
   confidence: number;

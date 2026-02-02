@@ -89,9 +89,11 @@ async function processRequest(
     return decision;
   }
 
+  const policy = policyEngine.getPolicy();
+
   // Parse intent using LLM
   console.error("Parsing intent with LLM...");
-  const intent = await parseIntent(request.raw_text);
+  const intent = await parseIntent(request.raw_text, policy);
   console.error(`Parsed: ${JSON.stringify(intent)}`);
 
   // Evaluate against policy

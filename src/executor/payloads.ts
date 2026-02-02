@@ -24,12 +24,12 @@ export function generateSlackPayload(
 export function generateAwsPayload(
   userEmail: string,
   resource: string,
-  accessLevel: string | null
+  requestedAction: string | null
 ): PayloadResult<"AWS_IAM_GRANT"> {
   const roleMap: Record<string, string> = {
-    read: "readonly-role",
-    write: "readwrite-role",
-    admin: "admin-role",
+    read_access: "readonly-role",
+    write_access: "readwrite-role",
+    admin_access: "admin-role",
   };
 
   return {
@@ -37,7 +37,7 @@ export function generateAwsPayload(
     action: "AWS_IAM_GRANT",
     payload: {
       user: userEmail,
-      role: roleMap[accessLevel || "read"] || "readonly-role",
+      role: roleMap[requestedAction || "read_access"] || "readonly-role",
       resource: resource || "default",
     },
   };
@@ -46,15 +46,21 @@ export function generateAwsPayload(
 export function generateJiraPayload(
   userEmail: string,
   project: string,
-  accessLevel: string | null
+  requestedAction: string | null
 ): PayloadResult<"JIRA_ACCESS_GRANT"> {
+  const accessMap: Record<string, string> = {
+    read_access: "read",
+    write_access: "write",
+    admin_access: "admin",
+  };
+
   return {
     service: "Jira",
     action: "JIRA_ACCESS_GRANT",
     payload: {
       user: userEmail,
       project: project || "default",
-      access: accessLevel || "read",
+      access: accessMap[requestedAction || "read_access"] || "read",
     },
   };
 }
@@ -106,13 +112,13 @@ export function generatePayload(
           return generateAwsPayload(
             userEmail,
             intent.target_resource || "default",
-            intent.access_level
+            intent.requested_action
           );
         case "jira":
           return generateJiraPayload(
             userEmail,
             intent.target_resource || "default",
-            intent.access_level
+            intent.requested_action
           );
         default:
           return null;

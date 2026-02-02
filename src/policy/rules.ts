@@ -58,40 +58,38 @@ export function evaluateSystemAccess(
 
 export function evaluateSensitiveAction(
   targetSystem: string,
-  accessLevel: string | null,
+  requestedAction: string | null,
   policy: Policy
 ): PolicyResult {
-  // Look up by system name (case-insensitive)
-  const systemKey = Object.keys(policy.sensitive_actions).find(
+  // Look up service config (case-insensitive)
+  const serviceKey = Object.keys(policy.services).find(
     (k) => k.toLowerCase() === targetSystem.toLowerCase()
   );
 
-  if (!systemKey) {
+  if (!serviceKey) {
     return { allowed: true };
   }
 
-  const sensitiveRules = policy.sensitive_actions[systemKey];
+  const serviceConfig = policy.services[serviceKey];
+  const sensitiveActions = serviceConfig.sensitive_actions;
 
-  // Map access level to policy key format (e.g., "write" -> "write_access")
-  const accessKeys = accessLevel
-    ? [`${accessLevel}_access`, accessLevel]
-    : [];
+  if (!sensitiveActions || !requestedAction) {
+    return { allowed: true };
+  }
 
-  for (const key of accessKeys) {
-    const result = sensitiveRules[key];
-    if (result === "DENY") {
-      return {
-        allowed: false,
-        reason: `Policy violation: '${accessLevel}' access to '${targetSystem}' is explicitly denied`,
-      };
-    }
-    if (result === "REQUIRES_APPROVAL") {
-      return {
-        allowed: true,
-        requires_approval: true,
-        reason: `'${accessLevel}' access to '${targetSystem}' requires manual approval`,
-      };
-    }
+  const result = sensitiveActions[requestedAction];
+  if (result === "DENY") {
+    return {
+      allowed: false,
+      reason: `Policy violation: '${requestedAction}' to '${targetSystem}' is explicitly denied`,
+    };
+  }
+  if (result === "REQUIRES_APPROVAL") {
+    return {
+      allowed: true,
+      requires_approval: true,
+      reason: `'${requestedAction}' to '${targetSystem}' requires manual approval`,
+    };
   }
 
   return { allowed: true };
@@ -101,21 +99,22 @@ export function evaluateSlackChannel(
   channel: string,
   policy: Policy
 ): PolicyResult {
-  const slackRules = policy.system_specific_rules?.Slack;
+  const slackConfig = policy.services.Slack;
 
-  // If no Slack-specific rules defined, require approval by default
-  if (!slackRules) {
+  // If no Slack service config, require approval by default
+  if (!slackConfig) {
     return {
       allowed: true,
       requires_approval: true,
-      reason: `Channel '${channel}' requires manual approval (no auto-approve rules defined)`,
+      reason: `Channel '${channel}' requires manual approval (no Slack config defined)`,
     };
   }
 
-  const { auto_approve_channels, restricted_channels } = slackRules;
+  const autoApproveChannels = slackConfig.auto_approve_channels || [];
+  const restrictedChannels = slackConfig.restricted_channels || [];
 
   // Check if channel is restricted
-  if (restricted_channels.includes(channel)) {
+  if (restrictedChannels.includes(channel)) {
     return {
       allowed: false,
       reason: `Channel '${channel}' is restricted and cannot be joined`,
@@ -123,7 +122,7 @@ export function evaluateSlackChannel(
   }
 
   // Check if channel is auto-approved
-  if (auto_approve_channels.includes(channel)) {
+  if (autoApproveChannels.includes(channel)) {
     return { allowed: true };
   }
 
@@ -257,7 +256,7 @@ export function evaluateFullPolicy(
     // Check sensitive actions
     const sensitiveResult = evaluateSensitiveAction(
       intent.target_system,
-      intent.access_level,
+      intent.requested_action,
       policy
     );
     if (!sensitiveResult.allowed) {

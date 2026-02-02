@@ -1,2 +1,2 @@
 export { parseIntent } from "./llm-parser.js";
-export type { ParsedIntent, ActionType, AccessLevel } from "./types.js";
+export type { ParsedIntent, ActionType } from "./types.js";

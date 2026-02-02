@@ -1,4 +1,41 @@
 {
+  "services": {
+    "AWS": {
+      "actions": ["read_access", "write_access", "admin_access"],
+      "resources": ["prod-db", "staging-db", "analytics-db", "s3-data-bucket"],
+      "sensitive_actions": {
+        "write_access": "REQUIRES_APPROVAL",
+        "admin_access": "DENY"
+      }
+    },
+    "Slack": {
+      "actions": ["join_channel", "leave_channel"],
+      "resources": ["#general", "#random", "#social", "#announcements", "#fde-team-updates", "#engineering"],
+      "auto_approve_channels": ["#general", "#random", "#social", "#announcements"],
+      "restricted_channels": ["#executive-confidential", "#hr-sensitive"]
+    },
+    "Jira": {
+      "actions": ["read_access", "write_access", "admin_access"],
+      "resources": ["ENGINEERING", "PRODUCT", "SUPPORT"]
+    },
+    "Okta": {
+      "actions": ["create_user", "delete_user", "assign_admin", "revoke_access"],
+      "resources": [],
+      "sensitive_actions": {
+        "create_user": "REQUIRES_APPROVAL",
+        "delete_user": "REQUIRES_APPROVAL",
+        "assign_admin": "DENY"
+      }
+    },
+    "GitHub": {
+      "actions": ["read_access", "write_access", "admin_access"],
+      "resources": ["opendoor/backend", "opendoor/frontend", "opendoor/infra"]
+    },
+    "Hardware": {
+      "actions": ["request"],
+      "resources": ["macbook-pro", "macbook-air", "monitor-4k", "keyboard", "mouse"]
+    }
+  },
   "roles": {
     "Engineering": {
       "allowed_systems": ["Slack", "Jira", "GitHub", "AWS"],
@@ -15,23 +52,6 @@
     "Security": {
       "allowed_systems": ["*"],
       "can_revoke_access": true
-    }
-  },
-  "sensitive_actions": {
-    "AWS": {
-      "write_access": "REQUIRES_APPROVAL",
-      "admin_access": "DENY"
-    },
-    "Okta": {
-      "create_user": "REQUIRES_APPROVAL",
-      "delete_user": "REQUIRES_APPROVAL",
-      "assign_admin": "DENY"
-    }
-  },
-  "system_specific_rules": {
-    "Slack": {
-      "auto_approve_channels": ["#general", "#random", "#social", "#announcements"],
-      "restricted_channels": ["#executive-confidential", "#hr-sensitive"]
     }
   }
 }

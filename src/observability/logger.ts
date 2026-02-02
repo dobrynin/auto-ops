@@ -62,7 +62,7 @@ export class Logger {
 
     if (intent.action_type === "ACCESS_REQUEST") {
       rules.push("system_access_check");
-      if (intent.access_level) {
+      if (intent.requested_action) {
         rules.push("sensitive_action_check");
       }
       if (intent.target_system?.toLowerCase() === "slack") {
