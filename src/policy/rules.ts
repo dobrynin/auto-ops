@@ -30,7 +30,7 @@ export function evaluateSystemAccess(
   if (!rolePolicy) {
     return {
       allowed: false,
-      reason: `Department '${department}' is not defined in policy`,
+      reason: `Access denied: You are not authorized for '${targetSystem}'`,
     };
   }
 
@@ -49,7 +49,7 @@ export function evaluateSystemAccess(
   if (!systemAllowed) {
     return {
       allowed: false,
-      reason: `Department '${department}' is not authorized for '${targetSystem}' access. Allowed systems: ${allowedSystems.join(", ")}`,
+      reason: `Access denied: You are not authorized for '${targetSystem}'`,
     };
   }
 
@@ -162,7 +162,7 @@ export function evaluateResourceRestrictions(
   if (!hasAccess) {
     return {
       allowed: false,
-      reason: `'${requestedAction}' on '${targetResource}' is restricted to groups: ${allowedGroups.join(", ")}. User is in: ${userMemberships.join(", ")}`,
+      reason: `Access denied: You do not have permission for '${requestedAction}' on '${targetResource}'`,
     };
   }
 
@@ -180,7 +180,7 @@ export function evaluateSlackChannel(
     return {
       allowed: true,
       requires_approval: true,
-      reason: `Channel '${channel}' requires manual approval (no Slack config defined)`,
+      reason: `Channel '${channel}' requires manual approval`,
     };
   }
 
@@ -206,7 +206,7 @@ export function evaluateSlackChannel(
   return {
     allowed: true,
     requires_approval: true,
-    reason: `Channel '${channel}' is not in auto-approve list and requires manual approval${approverText}`,
+    reason: `Joining channel '${channel}' requires manual approval${approverText}`,
     approver_group: approverGroup,
   };
 }
@@ -221,7 +221,7 @@ export function evaluateHardwareBudget(
   if (!rolePolicy) {
     return {
       allowed: false,
-      reason: `Department '${department}' is not defined in policy`,
+      reason: `Access denied: Hardware requests are not available for your department`,
     };
   }
 
@@ -229,14 +229,14 @@ export function evaluateHardwareBudget(
   if (rolePolicy.max_hardware_budget === undefined) {
     return {
       allowed: false,
-      reason: `Department '${department}' does not have a hardware budget defined`,
+      reason: `Access denied: Hardware requests are not available for your department`,
     };
   }
 
   if (estimatedCost > rolePolicy.max_hardware_budget) {
     return {
       allowed: false,
-      reason: `Hardware cost ($${estimatedCost}) exceeds budget limit ($${rolePolicy.max_hardware_budget}) for '${department}' department`,
+      reason: `Hardware request denied: The requested item exceeds your department's budget allowance`,
     };
   }
 
@@ -313,7 +313,7 @@ export function evaluateFullPolicy(
     if (!rolePolicy || !rolePolicy.allowed_systems.includes("*")) {
       return {
         allowed: false,
-        reason: `Department '${department}' is not authorized to revoke access`,
+        reason: `Access denied: You are not authorized to revoke access`,
         rules_checked: rulesChecked,
       };
     }
