@@ -263,6 +263,64 @@ The following potential security issues were identified by an automated security
   - `as Decision` casts bypass TypeScript type checking
   - **Fix:** Properly construct typed objects without assertions
 
+## Edge Case TODOs
+
+The following potential edge cases were identified by an automated edge-case review agent. These could cause unexpected behavior in production.
+
+### Medium Severity
+
+- [ ] **Missing InputRequest Field Validation** (`src/index.ts`)
+  - No runtime validation that `id`, `user_email`, `department` exist in request JSON
+  - If fields are missing/undefined, session keys and spending records break
+  - **Fix:** Add runtime validation or use Zod schema validation for InputRequest
+
+- [ ] **Blacklist Warnings Never Expire** (`src/blacklist/index.ts`)
+  - A user warned 6 months ago gets immediately blacklisted on next injection attempt
+  - Stale warnings cause unfair blacklisting
+  - **Fix:** Add TTL to warnings (e.g., 30 days) or clear warnings when blacklist expires
+
+- [ ] **Blacklist Expiry Boundary Condition** (`src/blacklist/index.ts:28`)
+  - Uses `>` instead of `>=` for expiry check
+  - User told "blacklisted until X" may still be blocked at exactly time X
+  - **Fix:** Change to `>=` for consistent behavior with displayed expiry time
+
+- [ ] **No Spending Amount Validation** (`src/spending/index.ts:22-35`)
+  - `recordSpending` accepts any number including negative or `Infinity`
+  - Negative amounts could reduce spending, allowing budget bypass
+  - **Fix:** Validate amount > 0 and amount < reasonable maximum
+
+- [ ] **Missing LLM Response Field Validation** (`src/parser/llm-parser.ts:120`)
+  - If LLM omits `confidence` field, it becomes `undefined`
+  - `Math.min(undefined, 0.5)` returns `NaN`, breaking threshold comparisons
+  - **Fix:** Add default values or reject intents missing required fields
+
+- [ ] **Very Long Session Histories** (`src/session/index.ts:98-121`)
+  - Sessions with many turns create large conversation history strings
+  - Could exceed LLM token limits, causing API errors
+  - **Fix:** Limit session history to last N turns or implement token counting
+
+### Low Severity
+
+- [ ] **Floating-Point Budget Arithmetic** (`src/policy/rules.ts:237-245`)
+  - Budget math uses JavaScript numbers: `100.10 + 100.20 = 300.30000000000004`
+  - Edge cases near budget limits could behave unpredictably
+  - **Fix:** Use integer cents or a Decimal library for currency calculations
+
+- [ ] **Empty raw_text Handling** (`src/parser/llm-parser.ts:107`)
+  - Empty or whitespace-only `raw_text` is sent directly to LLM
+  - Could cause unpredictable LLM responses
+  - **Fix:** Validate raw_text is non-empty before LLM parsing
+
+- [ ] **Confidence Threshold Boundary** (`src/executor/index.ts:15`)
+  - Confidence exactly at 0.7 passes threshold (`<` not `<=`)
+  - Floating-point comparison could cause inconsistent behavior at boundary
+  - **Fix:** Document boundary behavior or use epsilon comparison
+
+- [ ] **Special Characters in Payload Fields** (`src/executor/payloads.ts`)
+  - Channel names, resource names not validated for special characters
+  - Newlines or control characters could break downstream API calls
+  - **Fix:** Validate/sanitize payload fields against allowed character patterns
+
 ## Output Format
 
 ### Approved Request
