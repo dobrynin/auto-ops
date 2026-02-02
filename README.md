@@ -1,6 +1,6 @@
 # Auto-Ops Agent
 
-A CLI application that processes unstructured IT requests and outputs structured actions, enforcing security policies along the way.
+A CLI application that processes unstructured IT requests and outputs structured actions, enforcing security policies along the way. Supports multi-request messages, conversation context for clarifications, and cumulative budget tracking.
 
 ## Quick Start
 
@@ -45,11 +45,27 @@ npx tsx src/index.ts --input ./input.json --policy ./policy.json --output ./outp
 │  Intent Parser  │────▶│  Policy Engine  │────▶│    Executor     │
 │   (LLM Layer)   │     │  (Guardrails)   │     │   (Output)      │
 └─────────────────┘     └─────────────────┘     └─────────────────┘
+        │                       │                       │
+        ▼                       ▼                       ▼
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│ Session Store   │     │ Spending Track  │     │  Blacklist      │
+│ (Conversation)  │     │ (90-day budget) │     │  (Offenders)    │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
 ```
 
-1. **Intent Parser**: Uses Claude to extract structured intent from natural language requests
-2. **Policy Engine**: Validates requests against configurable security policies
-3. **Executor**: Generates service-specific JSON payloads for approved requests
+### Components
+
+1. **Intent Parser**: Uses Claude to extract structured intents from natural language. Supports multiple intents per message (e.g., "Add me to Slack and give me AWS access" → 2 intents).
+
+2. **Policy Engine**: Validates each intent against configurable security policies including department access, sensitive actions, budget limits, and group-based restrictions.
+
+3. **Executor**: Generates service-specific JSON payloads for approved requests, returning a `MultiDecision` with individual sub-decisions and summary statistics.
+
+4. **Session Store**: Maintains conversation history per user (keyed by email) with 15-minute TTL. Enables follow-up clarifications without restating context.
+
+5. **Spending Tracker**: Tracks cumulative hardware spending per user over a 90-day rolling window. Prevents budget circumvention through multiple small requests.
+
+6. **Blacklist Store**: Tracks prompt injection attempts. First offense triggers a warning; repeat offenses result in 24-hour blacklist.
 
 ## AI Safety Section
 
@@ -67,10 +83,10 @@ The LLM's parsed output is **never executed directly**. It only suggests intent,
 #### 2. Strict Allow-Lists
 
 - **Action types**: Only `ACCESS_REQUEST`, `HARDWARE_REQUEST`, `REVOKE_ACCESS`, and `UNKNOWN` are valid. Any other action type from the LLM is normalized to `UNKNOWN`.
-- **Access levels**: Only `read`, `write`, `admin`, or `null` are accepted.
-- **Systems**: Unknown systems are flagged with reduced confidence.
+- **Systems**: Unknown systems are flagged with reduced confidence (max 0.5), triggering clarification instead of approval.
+- **Actions**: Invalid actions for a service are flagged with reduced confidence.
 
-#### 3. Prompt Injection Detection
+#### 3. Prompt Injection Detection & Blacklisting
 
 Before any LLM processing, raw request text is scanned for injection patterns:
 - "ignore previous instructions"
@@ -81,28 +97,38 @@ Before any LLM processing, raw request text is scanned for injection patterns:
 
 Requests containing these patterns are **immediately denied** without LLM processing.
 
+**Repeat offenders are blacklisted:**
+- First offense: Warning logged, request denied
+- Second offense: User blacklisted for 24 hours
+- While blacklisted: All requests denied with generic message
+
 #### 4. Confidence Thresholds
 
-If the LLM's confidence score is below 0.7 (70%), the request triggers a `CLARIFICATION_NEEDED` response instead of any action.
+If the LLM's confidence score is below 0.7 (70%), the request triggers a `CLARIFICATION_NEEDED` response instead of any action. Unknown systems automatically have confidence capped at 0.5.
 
 #### 5. Policy Engine as Final Arbiter
 
-Every request must pass policy checks:
+Every intent must pass policy checks:
 - Department-based system access (e.g., Finance cannot access AWS)
+- Group-based resource restrictions (e.g., only SRE can write to prod-db)
 - Sensitive action rules (e.g., admin access is denied or requires approval)
-- Hardware budget limits per department
+- Cumulative hardware budget limits per user (90-day rolling window)
 - Slack channel restrictions
+- Revoke access permissions (only departments with `can_revoke_access: true`)
 
-#### 6. Complete Audit Trail
+#### 6. Cumulative Budget Tracking
+
+Hardware spending is tracked per user over a 90-day rolling window. This prevents users from circumventing budget limits by making multiple small requests. Both `APPROVED` and `REQUIRES_APPROVAL` requests count against the budget.
+
+#### 7. Complete Audit Trail
 
 Every decision is logged with:
 - Timestamp
 - Original request
-- Parsed intent
+- Parsed intent(s)
 - Policy rules evaluated
 - Final decision and reasoning
-
-This enables review and detection of any anomalies.
+- Session ID for conversation tracking
 
 ## Policy Rule Format
 
@@ -110,24 +136,43 @@ The policy.json file defines access rules:
 
 ```json
 {
-  "roles": {
-    "Department Name": {
-      "allowed_systems": ["Slack", "Jira", "AWS"],
-      "max_hardware_budget": 3000
+  "services": {
+    "AWS": {
+      "actions": ["read_access", "write_access", "admin_access"],
+      "resources": ["staging-db", "prod-db", "logs"],
+      "sensitive_actions": {
+        "write_access": "REQUIRES_APPROVAL",
+        "admin_access": "DENY"
+      },
+      "resource_restrictions": {
+        "prod-db": {
+          "write_access": ["SRE", "Engineering"]
+        }
+      },
+      "default_approver": "cloud-team"
+    },
+    "Slack": {
+      "actions": ["join_channel", "leave_channel"],
+      "resources": [],
+      "auto_approve_channels": ["#general", "#engineering"],
+      "restricted_channels": ["#executive", "#security-incidents"],
+      "channel_approver": "slack-admins"
     }
   },
-  "sensitive_actions": {
-    "aws": [
-      { "action": "write_access", "result": "REQUIRES_APPROVAL" },
-      { "action": "admin_access", "result": "DENY" }
-    ],
-    "okta": [
-      { "action": "admin", "result": "DENY" }
-    ]
-  },
-  "slack": {
-    "auto_approve_channels": ["#general", "#engineering"],
-    "restricted_channels": ["#executive", "#security-incidents"]
+  "roles": {
+    "Engineering": {
+      "allowed_systems": ["Slack", "Jira", "AWS"],
+      "max_hardware_budget": 3000
+    },
+    "Security": {
+      "allowed_systems": ["*"],
+      "can_revoke_access": true,
+      "max_hardware_budget": 5000
+    },
+    "Interns": {
+      "allowed_systems": ["Slack", "Jira"],
+      "max_hardware_budget": 1500
+    }
   }
 }
 ```
@@ -137,64 +182,97 @@ The policy.json file defines access rules:
 | Field | Description |
 |-------|-------------|
 | `allowed_systems` | List of systems this department can access. Use `["*"]` for all systems. |
-| `max_hardware_budget` | Maximum dollar amount for hardware requests |
+| `max_hardware_budget` | Maximum cumulative spending over 90-day rolling window |
+| `can_revoke_access` | Whether this department can revoke other users' access (default: false) |
+
+### Service Configuration
+
+| Field | Description |
+|-------|-------------|
+| `actions` | Valid actions for this service |
+| `resources` | Known resources (empty = user-specified) |
+| `sensitive_actions` | Actions requiring approval or denied outright |
+| `resource_restrictions` | Group-based access control per resource/action |
+| `default_approver` | Who approves requests for this service |
 
 ### Sensitive Actions
 
 Define per-system rules for sensitive operations:
 - `REQUIRES_APPROVAL`: Request is valid but needs manual approval
 - `DENY`: Request is always denied
+- Can also specify `approver_group` for specific actions
 
 ### Slack Policies
 
 - `auto_approve_channels`: Channels that can be joined without approval
 - `restricted_channels`: Channels that cannot be joined
+- `channel_approver`: Who approves non-auto-approved channels
 
-## Extensibility
+## Output Format
 
-### Adding a New SaaS System
+The system returns a `MultiDecision` for each request, containing individual sub-decisions for each intent:
 
-1. **Add to policy.json**: Include the system in relevant department `allowed_systems`
+### Multi-Request Response
+```json
+{
+  "request_id": "req_009",
+  "session_id": "alice@company.com",
+  "sub_decisions": [
+    {
+      "sub_request_index": 0,
+      "status": "APPROVED",
+      "service": "Slack",
+      "action": "SLACK_CHANNEL_ADD",
+      "payload": { "user": "alice@company.com", "channel": "#general" }
+    },
+    {
+      "sub_request_index": 1,
+      "status": "APPROVED",
+      "service": "AWS",
+      "action": "AWS_IAM_GRANT",
+      "payload": { "user": "alice@company.com", "role": "readonly-role", "resource": "staging-db" }
+    }
+  ],
+  "summary": {
+    "total": 2,
+    "approved": 2,
+    "denied": 0,
+    "requires_approval": 0,
+    "clarification_needed": 0
+  }
+}
+```
 
-2. **Add payload generator** in `src/executor/payloads.ts`:
-   ```typescript
-   export function generateNewServicePayload(
-     userEmail: string,
-     resource: string
-   ): PayloadResult<"NEW_SERVICE_ACTION"> {
-     return {
-       service: "NewService",
-       action: "NEW_SERVICE_ACTION",
-       payload: { user: userEmail, resource }
-     };
-   }
-   ```
+### Decision Statuses
 
-3. **Update types** in `src/types.ts`:
-   ```typescript
-   export type Service = "AWS" | "Slack" | ... | "NewService";
-   export type Action = ... | "NEW_SERVICE_ACTION";
-   ```
+| Status | Description |
+|--------|-------------|
+| `APPROVED` | Request approved, includes service/action/payload |
+| `DENIED` | Request denied, includes reason |
+| `REQUIRES_APPROVAL` | Valid request pending manual approval, includes approver_group |
+| `CLARIFICATION_NEEDED` | Ambiguous request, includes clarification questions |
 
-4. **Add case to payload generator** in `src/executor/payloads.ts`
+## Trade-offs Made
 
-5. **Add to known systems** in `src/parser/llm-parser.ts`
-
-## Trade-offs Made Due to Time Constraints
-
-1. **LLM vs Regex**: Chose LLM for flexibility in understanding natural language, but this adds API dependency and latency. A production system might use regex for simple patterns and LLM only for ambiguous cases.
+1. **LLM vs Regex**: Chose LLM for flexibility in understanding natural language and multi-request parsing, but this adds API dependency and latency. A production system might use regex for simple patterns and LLM only for ambiguous cases.
 
 2. **Confidence Threshold**: The 0.7 threshold is somewhat arbitrary. A production system would tune this based on real-world false positive/negative rates.
 
 3. **Hardware Pricing**: Uses hardcoded estimates rather than a real product catalog. Production would integrate with procurement systems.
 
-4. **No User Verification**: The system trusts the user email in requests. Production would verify identity through SSO/auth systems.
+4. **No User Verification**: The system trusts the user email, department, and groups in requests. Production would verify identity through SSO/auth systems (see Security TODOs).
 
-5. **No Persistence**: Decisions aren't stored in a database. Production would need durable storage for audit trails.
+5. **In-Memory State**: Sessions, spending records, and blacklist are stored in-memory. Production would need durable storage for audit trails and persistence across restarts.
 
-6. **Sequential Processing**: Requests are processed one at a time. Production could parallelize for throughput.
+6. **Sequential Processing**: Requests are processed one at a time. Production could parallelize for throughput (with careful handling of spending accumulation).
 
 7. **No Retry Logic**: LLM API failures fail the request. Production would implement retries with exponential backoff.
+
+8. **Regex-Based Injection Detection**: Prompt injection detection uses simple regex patterns that can be bypassed. Production would use semantic analysis or a separate LLM call to detect manipulation attempts.
+
+9. **Session Key by Email**: Using email as session key means conversation context is shared across all of a user's concurrent requests. Production might want per-conversation session IDs for Slack thread isolation.
+
+10. **Blacklist Without Appeal**: Blacklisted users have no self-service way to appeal. Production would need an admin interface or automatic escalation.
 
 ## Security TODOs
 
@@ -321,54 +399,6 @@ The following potential edge cases were identified by an automated edge-case rev
   - Newlines or control characters could break downstream API calls
   - **Fix:** Validate/sanitize payload fields against allowed character patterns
 
-## Output Format
-
-### Approved Request
-```json
-{
-  "request_id": "req_001",
-  "status": "APPROVED",
-  "service": "Slack",
-  "action": "SLACK_CHANNEL_ADD",
-  "payload": {
-    "user": "alice@opendoor.com",
-    "channel": "#fde-team-updates"
-  }
-}
-```
-
-### Denied Request
-```json
-{
-  "request_id": "req_002",
-  "status": "DENIED",
-  "reason": "Department 'Finance' is not authorized for 'AWS' access"
-}
-```
-
-### Requires Approval
-```json
-{
-  "request_id": "req_003",
-  "status": "REQUIRES_APPROVAL",
-  "service": "AWS",
-  "action": "AWS_IAM_GRANT",
-  "reason": "'write' access to 'AWS' requires manual approval",
-  "payload": { ... }
-}
-```
-
-### Clarification Needed
-```json
-{
-  "request_id": "req_004",
-  "status": "CLARIFICATION_NEEDED",
-  "clarification_questions": [
-    "Which system or tool do you need access to?"
-  ]
-}
-```
-
 ## Development
 
 ```bash
@@ -378,3 +408,31 @@ npm run typecheck
 # Run with verbose logging (observability logs go to stderr)
 npm start 2>logs.json
 ```
+
+## Extensibility
+
+### Adding a New SaaS System
+
+1. **Add to policy.json**: Include the system in relevant department `allowed_systems` and define its configuration in `services`
+
+2. **Add payload generator** in `src/executor/payloads.ts`:
+   ```typescript
+   export function generateNewServicePayload(
+     userEmail: string,
+     resource: string
+   ): PayloadResult<"NEW_SERVICE_ACTION"> {
+     return {
+       service: "NewService",
+       action: "NEW_SERVICE_ACTION",
+       payload: { user: userEmail, resource }
+     };
+   }
+   ```
+
+3. **Update types** in `src/types.ts`:
+   ```typescript
+   export type Service = "AWS" | "Slack" | ... | "NewService";
+   export type Action = ... | "NEW_SERVICE_ACTION";
+   ```
+
+4. **Add case to payload generator** in `src/executor/payloads.ts`
