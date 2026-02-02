@@ -54,5 +54,12 @@
     "department": "Engineering",
     "groups": [],
     "raw_text": "I need write access to the prod-db AWS database to deploy a fix."
+  },
+  {
+    "id": "req_009",
+    "user_email": "henry_engineer@opendoor.com",
+    "department": "Engineering",
+    "groups": [],
+    "raw_text": "Add me to #fde-team-updates and give me Jira access for the MOBILE project."
   }
 ]

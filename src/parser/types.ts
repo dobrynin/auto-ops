@@ -13,3 +13,7 @@ export interface ParsedIntent {
   justification: string | null;
   confidence: number;
 }
+
+export interface ParsedIntentArray {
+  intents: ParsedIntent[];
+}

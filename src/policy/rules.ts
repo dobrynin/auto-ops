@@ -282,20 +282,9 @@ export function evaluateFullPolicy(
   intent: ParsedIntent,
   department: string,
   groups: string[],
-  rawText: string,
   policy: Policy
 ): PolicyResult {
   const rulesChecked: string[] = [];
-
-  // First check for prompt injection
-  rulesChecked.push("prompt_injection_check");
-  if (detectPromptInjection(rawText)) {
-    return {
-      allowed: false,
-      reason: "Request rejected: Potential prompt injection detected",
-      rules_checked: rulesChecked,
-    };
-  }
 
   // Handle unknown action type
   if (intent.action_type === "UNKNOWN") {
@@ -310,7 +299,7 @@ export function evaluateFullPolicy(
   if (intent.action_type === "REVOKE_ACCESS") {
     rulesChecked.push("revoke_permission_check");
     const rolePolicy = policy.roles[department];
-    if (!rolePolicy || !rolePolicy.allowed_systems.includes("*")) {
+    if (!rolePolicy || !rolePolicy.can_revoke_access) {
       return {
         allowed: false,
         reason: `Access denied: You are not authorized to revoke access`,

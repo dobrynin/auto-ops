@@ -23,10 +23,9 @@ export class PolicyEngine {
   evaluate(
     intent: ParsedIntent,
     department: string,
-    groups: string[],
-    rawText: string
+    groups: string[]
   ): PolicyResult {
-    return evaluateFullPolicy(intent, department, groups, rawText, this.policy);
+    return evaluateFullPolicy(intent, department, groups, this.policy);
   }
 
   detectInjection(text: string): boolean {

@@ -1,6 +1,6 @@
 import type { ParsedIntent } from "../parser/types.js";
 import type { PolicyResult } from "../policy/types.js";
-import type { Decision, InputRequest } from "../types.js";
+import type { Decision, InputRequest, SubDecision, MultiDecision } from "../types.js";
 import { generatePayload } from "./payloads.js";
 
 const CONFIDENCE_THRESHOLD = 0.7;
@@ -97,4 +97,71 @@ function generateClarificationQuestions(intent: ParsedIntent): string[] {
   }
 
   return questions;
+}
+
+function decisionToSubDecision(decision: Decision, index: number): SubDecision {
+  const base: SubDecision = {
+    sub_request_index: index,
+    status: decision.status,
+  };
+
+  if (decision.status === "APPROVED") {
+    return {
+      ...base,
+      service: decision.service,
+      action: decision.action,
+      payload: decision.payload,
+    };
+  }
+
+  if (decision.status === "DENIED") {
+    return {
+      ...base,
+      reason: decision.reason,
+    };
+  }
+
+  if (decision.status === "CLARIFICATION_NEEDED") {
+    return {
+      ...base,
+      clarification_questions: decision.clarification_questions,
+    };
+  }
+
+  if (decision.status === "REQUIRES_APPROVAL") {
+    return {
+      ...base,
+      service: decision.service,
+      action: decision.action,
+      reason: decision.reason,
+      approver_group: decision.approver_group,
+      payload: decision.payload,
+    };
+  }
+
+  return base;
+}
+
+export function executeMultiple(
+  request: InputRequest,
+  intents: ParsedIntent[],
+  policyResults: PolicyResult[],
+  estimatedCosts: (number | undefined)[]
+): MultiDecision {
+  const subDecisions = intents.map((intent, index) => {
+    const decision = execute(request, intent, policyResults[index], estimatedCosts[index]);
+    return decisionToSubDecision(decision, index);
+  });
+
+  return {
+    request_id: request.id,
+    sub_decisions: subDecisions,
+    summary: {
+      total: subDecisions.length,
+      approved: subDecisions.filter((d) => d.status === "APPROVED").length,
+      denied: subDecisions.filter((d) => d.status === "DENIED").length,
+      requires_approval: subDecisions.filter((d) => d.status === "REQUIRES_APPROVAL").length,
+      clarification_needed: subDecisions.filter((d) => d.status === "CLARIFICATION_NEEDED").length,
+    },
+  };
 }

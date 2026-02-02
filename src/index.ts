@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 import "dotenv/config";
 import { readFile } from "fs/promises";
-import { parseIntent } from "./parser/index.js";
+import { parseIntents } from "./parser/index.js";
 import { PolicyEngine } from "./policy/index.js";
-import { execute } from "./executor/index.js";
+import { executeMultiple } from "./executor/index.js";
 import { Logger } from "./observability/logger.js";
-import type { InputRequest, Decision } from "./types.js";
+import type { InputRequest, MultiDecision } from "./types.js";
 
 interface CliArgs {
   inputPath: string;
@@ -73,52 +73,63 @@ async function processRequest(
   request: InputRequest,
   policyEngine: PolicyEngine,
   logger: Logger
-): Promise<Decision> {
+): Promise<MultiDecision> {
   const groups = request.groups || [];
   console.error(`\n--- Processing ${request.id} ---`);
   console.error(`User: ${request.user_email} (${request.department}${groups.length > 0 ? `, groups: ${groups.join(", ")}` : ""})`);
   console.error(`Request: "${request.raw_text}"`);
 
-  // Check for prompt injection before LLM parsing
+  // Check for prompt injection before LLM parsing (blocks entire request)
   if (policyEngine.detectInjection(request.raw_text)) {
     console.error("⚠️  Prompt injection detected - skipping LLM parsing");
-    const decision: Decision = {
+    return {
       request_id: request.id,
-      status: "DENIED",
-      reason: "Request rejected: Potential prompt injection detected",
+      sub_decisions: [
+        {
+          sub_request_index: 0,
+          status: "DENIED",
+          reason: "Request rejected: Potential prompt injection detected",
+        },
+      ],
+      summary: {
+        total: 1,
+        approved: 0,
+        denied: 1,
+        requires_approval: 0,
+        clarification_needed: 0,
+      },
     };
-    return decision;
   }
 
   const policy = policyEngine.getPolicy();
 
-  // Parse intent using LLM
-  console.error("Parsing intent with LLM...");
-  const intent = await parseIntent(request.raw_text, policy);
-  console.error(`Parsed: ${JSON.stringify(intent)}`);
+  // Parse intents using LLM (may return multiple)
+  console.error("Parsing intents with LLM...");
+  const intents = await parseIntents(request.raw_text, policy);
+  console.error(`Parsed ${intents.length} intent(s): ${JSON.stringify(intents)}`);
 
-  // Evaluate against policy
-  const policyResult = policyEngine.evaluate(
-    intent,
-    request.department,
-    groups,
-    request.raw_text
+  // Evaluate each intent against policy
+  const policyResults = intents.map((intent) =>
+    policyEngine.evaluate(intent, request.department, groups)
   );
-  console.error(`Policy result: ${JSON.stringify(policyResult)}`);
+  console.error(`Policy results: ${JSON.stringify(policyResults)}`);
 
-  // Get estimated cost for hardware requests
-  const estimatedCost =
+  // Get estimated costs for hardware requests
+  const estimatedCosts = intents.map((intent) =>
     intent.action_type === "HARDWARE_REQUEST"
       ? policyEngine.getEstimatedCost(intent.target_resource || "")
-      : undefined;
+      : undefined
+  );
 
-  // Execute and generate decision
-  const decision = execute(request, intent, policyResult, estimatedCost);
+  // Execute and generate multi-decision
+  const multiDecision = executeMultiple(request, intents, policyResults, estimatedCosts);
 
-  // Log for observability
-  logger.log(request, intent, policyResult, decision);
+  // Log each intent/decision pair for observability
+  intents.forEach((intent, index) => {
+    logger.logSubDecision(request, intent, policyResults[index], multiDecision.sub_decisions[index], index);
+  });
 
-  return decision;
+  return multiDecision;
 }
 
 async function main(): Promise<void> {
@@ -143,7 +154,7 @@ async function main(): Promise<void> {
   console.error(`Loaded ${requests.length} requests`);
 
   // Process each request
-  const decisions: Decision[] = [];
+  const decisions: MultiDecision[] = [];
 
   for (const request of requests) {
     try {
@@ -153,8 +164,20 @@ async function main(): Promise<void> {
       console.error(`Error processing ${request.id}:`, error);
       decisions.push({
         request_id: request.id,
-        status: "DENIED",
-        reason: `Processing error: ${error instanceof Error ? error.message : "Unknown error"}`,
+        sub_decisions: [
+          {
+            sub_request_index: 0,
+            status: "DENIED",
+            reason: `Processing error: ${error instanceof Error ? error.message : "Unknown error"}`,
+          },
+        ],
+        summary: {
+          total: 1,
+          approved: 0,
+          denied: 1,
+          requires_approval: 0,
+          clarification_needed: 0,
+        },
       });
     }
   }

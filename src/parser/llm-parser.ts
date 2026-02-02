@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { ParsedIntent, ActionType } from "./types.js";
+import type { ParsedIntent, ParsedIntentArray, ActionType } from "./types.js";
 import type { Policy } from "../policy/types.js";
 
 const VALID_ACTION_TYPES: ActionType[] = [
@@ -29,18 +29,27 @@ Available services and their actions/resources:
 
 ${serviceDescriptions}
 
-You must respond with valid JSON matching this exact schema:
+You must respond with valid JSON matching this schema:
 {
-  "action_type": "ACCESS_REQUEST" | "HARDWARE_REQUEST" | "REVOKE_ACCESS" | "UNKNOWN",
-  "target_system": string | null,
-  "target_resource": string | null,
-  "requested_action": string | null,
-  "target_user": string | null,
-  "justification": string | null,
-  "confidence": number (0-1)
+  "intents": [
+    {
+      "action_type": "ACCESS_REQUEST" | "HARDWARE_REQUEST" | "REVOKE_ACCESS" | "UNKNOWN",
+      "target_system": string | null,
+      "target_resource": string | null,
+      "requested_action": string | null,
+      "target_user": string | null,
+      "justification": string | null,
+      "confidence": number (0-1)
+    }
+  ]
 }
 
-Rules:
+Rules for multiple requests:
+- If the message contains multiple distinct actions, return multiple intent objects
+- Example: "Add me to Slack and give me AWS access" -> 2 intents
+- Single requests return an array with one element
+
+Rules for each intent:
 - action_type: Use "ACCESS_REQUEST" for system/tool access, "HARDWARE_REQUEST" for physical items, "REVOKE_ACCESS" for removing access, "UNKNOWN" if unclear
 - target_system: Must be one of: ${knownSystems.join(", ")}. Use null if not applicable.
 - target_resource: Specific resource like channel name, database name, project name. Use null if not specified.
@@ -62,10 +71,10 @@ function extractJson(text: string): string {
   return text.trim();
 }
 
-export async function parseIntent(
+export async function parseIntents(
   rawText: string,
   policy: Policy
-): Promise<ParsedIntent> {
+): Promise<ParsedIntent[]> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
 
   if (!apiKey) {
@@ -96,9 +105,23 @@ export async function parseIntent(
 
   // Strip markdown code blocks if present
   const jsonText = extractJson(content.text);
-  const parsed = JSON.parse(jsonText) as ParsedIntent;
+  const parsed = JSON.parse(jsonText) as ParsedIntentArray;
 
-  return validateAndNormalize(parsed, policy);
+  // Handle empty intents array
+  if (!parsed.intents || parsed.intents.length === 0) {
+    return [
+      {
+        action_type: "UNKNOWN",
+        target_system: null,
+        target_resource: null,
+        requested_action: null,
+        justification: null,
+        confidence: 0.3,
+      },
+    ];
+  }
+
+  return parsed.intents.map((intent) => validateAndNormalize(intent, policy));
 }
 
 function validateAndNormalize(

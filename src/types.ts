@@ -86,3 +86,26 @@ export interface InputRequest {
   groups?: string[];
   raw_text: string;
 }
+
+export interface SubDecision {
+  sub_request_index: number;
+  status: DecisionStatus;
+  service?: Service;
+  action?: Action;
+  payload?: PayloadByAction[Action];
+  reason?: string;
+  clarification_questions?: string[];
+  approver_group?: string;
+}
+
+export interface MultiDecision {
+  request_id: string;
+  sub_decisions: SubDecision[];
+  summary: {
+    total: number;
+    approved: number;
+    denied: number;
+    requires_approval: number;
+    clarification_needed: number;
+  };
+}
