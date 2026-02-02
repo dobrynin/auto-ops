@@ -113,6 +113,47 @@ export function evaluateSensitiveAction(
   return { allowed: true };
 }
 
+export function evaluateResourceExists(
+  targetSystem: string,
+  targetResource: string | null,
+  policy: Policy
+): RuleResult {
+  if (!targetResource) {
+    return { allowed: true };
+  }
+
+  // Look up service config (case-insensitive)
+  const serviceKey = Object.keys(policy.services).find(
+    (k) => k.toLowerCase() === targetSystem.toLowerCase()
+  );
+
+  if (!serviceKey) {
+    return { allowed: true };
+  }
+
+  const serviceConfig = policy.services[serviceKey];
+  const allowedResources = serviceConfig.resources;
+
+  // Empty resources array means user-specified resources are allowed
+  if (!allowedResources || allowedResources.length === 0) {
+    return { allowed: true };
+  }
+
+  // Check if resource is in allowed list (case-insensitive)
+  const resourceAllowed = allowedResources.some(
+    (r) => r.toLowerCase() === targetResource.toLowerCase()
+  );
+
+  if (!resourceAllowed) {
+    return {
+      allowed: false,
+      reason: `Access denied: '${targetResource}' is not a recognized resource for ${serviceKey}`,
+    };
+  }
+
+  return { allowed: true };
+}
+
 export function evaluateResourceRestrictions(
   targetSystem: string,
   targetResource: string | null,
@@ -333,6 +374,17 @@ export function evaluateFullPolicy(
     );
     if (!systemResult.allowed) {
       return { ...systemResult, rules_checked: rulesChecked };
+    }
+
+    // Check resource exists in policy
+    rulesChecked.push("resource_exists_check");
+    const resourceExistsResult = evaluateResourceExists(
+      intent.target_system,
+      intent.target_resource,
+      policy
+    );
+    if (!resourceExistsResult.allowed) {
+      return { ...resourceExistsResult, rules_checked: rulesChecked };
     }
 
     // Check sensitive actions
