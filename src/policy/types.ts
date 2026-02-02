@@ -20,7 +20,14 @@ export interface Policy {
   roles: Record<string, RolePolicy>;
 }
 
-export type PolicyResult =
+// Internal result type used by individual rule evaluation functions
+export type RuleResult =
   | { allowed: true; requires_approval?: false }
   | { allowed: true; requires_approval: true; reason: string }
   | { allowed: false; reason: string };
+
+// Final policy result that includes tracking of which rules were checked
+export type PolicyResult =
+  | { allowed: true; requires_approval?: false; rules_checked: string[] }
+  | { allowed: true; requires_approval: true; reason: string; rules_checked: string[] }
+  | { allowed: false; reason: string; rules_checked: string[] };

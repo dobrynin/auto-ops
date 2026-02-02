@@ -38,7 +38,6 @@ export class Logger {
     policyResult: PolicyResult,
     decision: Decision
   ): DecisionLog {
-    const rulesChecked = this.determineRulesChecked(intent);
     const evalResult = this.determinePolicyResult(policyResult, decision);
     const reasoning = this.generateReasoning(intent, policyResult, decision);
 
@@ -49,38 +48,12 @@ export class Logger {
       user_department: request.department,
       parsed_intent: intent,
       policy_evaluation: {
-        rules_checked: rulesChecked,
+        rules_checked: policyResult.rules_checked,
         result: evalResult,
       },
       final_decision: decision,
       reasoning,
     };
-  }
-
-  private determineRulesChecked(intent: ParsedIntent): string[] {
-    const rules: string[] = ["prompt_injection_check"];
-
-    if (intent.action_type === "ACCESS_REQUEST") {
-      rules.push("system_access_check");
-      if (intent.requested_action) {
-        rules.push("sensitive_action_check");
-      }
-      if (intent.target_system?.toLowerCase() === "slack") {
-        rules.push("slack_channel_policy_check");
-      }
-    }
-
-    if (intent.action_type === "HARDWARE_REQUEST") {
-      rules.push("hardware_budget_check");
-    }
-
-    if (intent.action_type === "REVOKE_ACCESS") {
-      rules.push("revoke_permission_check");
-    }
-
-    rules.push("confidence_threshold_check");
-
-    return rules;
   }
 
   private determinePolicyResult(

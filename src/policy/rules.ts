@@ -1,4 +1,4 @@
-import type { Policy, PolicyResult } from "./types.js";
+import type { Policy, PolicyResult, RuleResult } from "./types.js";
 import type { ParsedIntent } from "../parser/types.js";
 
 // Prompt injection patterns to detect and block
@@ -24,7 +24,7 @@ export function evaluateSystemAccess(
   department: string,
   targetSystem: string,
   policy: Policy
-): PolicyResult {
+): RuleResult {
   const rolePolicy = policy.roles[department];
 
   if (!rolePolicy) {
@@ -60,7 +60,7 @@ export function evaluateSensitiveAction(
   targetSystem: string,
   requestedAction: string | null,
   policy: Policy
-): PolicyResult {
+): RuleResult {
   // Look up service config (case-insensitive)
   const serviceKey = Object.keys(policy.services).find(
     (k) => k.toLowerCase() === targetSystem.toLowerCase()
@@ -102,7 +102,7 @@ export function evaluateResourceRestrictions(
   department: string,
   groups: string[],
   policy: Policy
-): PolicyResult {
+): RuleResult {
   if (!targetResource || !requestedAction) {
     return { allowed: true };
   }
@@ -154,7 +154,7 @@ export function evaluateResourceRestrictions(
 export function evaluateSlackChannel(
   channel: string,
   policy: Policy
-): PolicyResult {
+): RuleResult {
   const slackConfig = policy.services.Slack;
 
   // If no Slack service config, require approval by default
@@ -194,7 +194,7 @@ export function evaluateHardwareBudget(
   department: string,
   estimatedCost: number,
   policy: Policy
-): PolicyResult {
+): RuleResult {
   const rolePolicy = policy.roles[department];
 
   if (!rolePolicy) {
@@ -264,11 +264,15 @@ export function evaluateFullPolicy(
   rawText: string,
   policy: Policy
 ): PolicyResult {
+  const rulesChecked: string[] = [];
+
   // First check for prompt injection
+  rulesChecked.push("prompt_injection_check");
   if (detectPromptInjection(rawText)) {
     return {
       allowed: false,
       reason: "Request rejected: Potential prompt injection detected",
+      rules_checked: rulesChecked,
     };
   }
 
@@ -277,50 +281,58 @@ export function evaluateFullPolicy(
     return {
       allowed: false,
       reason: "Unable to determine request intent - please clarify your request",
+      rules_checked: rulesChecked,
     };
   }
 
   // Handle revoke access (Security team only based on policy)
   if (intent.action_type === "REVOKE_ACCESS") {
+    rulesChecked.push("revoke_permission_check");
     const rolePolicy = policy.roles[department];
     if (!rolePolicy || !rolePolicy.allowed_systems.includes("*")) {
       return {
         allowed: false,
         reason: `Department '${department}' is not authorized to revoke access`,
+        rules_checked: rulesChecked,
       };
     }
-    return { allowed: true };
+    return { allowed: true, rules_checked: rulesChecked };
   }
 
   // Handle hardware requests
   if (intent.action_type === "HARDWARE_REQUEST") {
+    rulesChecked.push("hardware_budget_check");
     const estimatedCost = estimateHardwareCost(intent.target_resource || "");
-    return evaluateHardwareBudget(department, estimatedCost, policy);
+    const budgetResult = evaluateHardwareBudget(department, estimatedCost, policy);
+    return { ...budgetResult, rules_checked: rulesChecked };
   }
 
   // Handle access requests
   if (intent.action_type === "ACCESS_REQUEST" && intent.target_system) {
     // Check system access permission
+    rulesChecked.push("system_access_check");
     const systemResult = evaluateSystemAccess(
       department,
       intent.target_system,
       policy
     );
     if (!systemResult.allowed) {
-      return systemResult;
+      return { ...systemResult, rules_checked: rulesChecked };
     }
 
     // Check sensitive actions
+    rulesChecked.push("sensitive_action_check");
     const sensitiveResult = evaluateSensitiveAction(
       intent.target_system,
       intent.requested_action,
       policy
     );
     if (!sensitiveResult.allowed) {
-      return sensitiveResult;
+      return { ...sensitiveResult, rules_checked: rulesChecked };
     }
 
     // Check resource restrictions (group-based access)
+    rulesChecked.push("resource_restrictions_check");
     const resourceResult = evaluateResourceRestrictions(
       intent.target_system,
       intent.target_resource,
@@ -330,7 +342,7 @@ export function evaluateFullPolicy(
       policy
     );
     if (!resourceResult.allowed) {
-      return resourceResult;
+      return { ...resourceResult, rules_checked: rulesChecked };
     }
 
     // Special handling for Slack channels
@@ -338,23 +350,25 @@ export function evaluateFullPolicy(
       intent.target_system.toLowerCase() === "slack" &&
       intent.target_resource
     ) {
+      rulesChecked.push("slack_channel_policy_check");
       const slackResult = evaluateSlackChannel(intent.target_resource, policy);
       if (!slackResult.allowed || slackResult.requires_approval) {
-        return slackResult;
+        return { ...slackResult, rules_checked: rulesChecked };
       }
     }
 
     // If sensitive action requires approval, return that
     if (sensitiveResult.requires_approval) {
-      return sensitiveResult;
+      return { ...sensitiveResult, rules_checked: rulesChecked };
     }
 
-    return { allowed: true };
+    return { allowed: true, rules_checked: rulesChecked };
   }
 
   // Fallback
   return {
     allowed: false,
     reason: "Unable to process request - missing required information",
+    rules_checked: rulesChecked,
   };
 }
