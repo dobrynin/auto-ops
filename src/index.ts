@@ -5,6 +5,7 @@ import { parseIntents } from "./parser/index.js";
 import { PolicyEngine } from "./policy/index.js";
 import { executeMultiple } from "./executor/index.js";
 import { Logger } from "./observability/logger.js";
+import { SessionStore } from "./session/index.js";
 import type { InputRequest, MultiDecision } from "./types.js";
 
 interface CliArgs {
@@ -72,10 +73,15 @@ async function loadRequests(path: string): Promise<InputRequest[]> {
 async function processRequest(
   request: InputRequest,
   policyEngine: PolicyEngine,
-  logger: Logger
+  logger: Logger,
+  sessionStore: SessionStore
 ): Promise<MultiDecision> {
   const groups = request.groups || [];
-  console.error(`\n--- Processing ${request.id} ---`);
+
+  // Use user email as session key for conversation continuity
+  const sessionId = request.user_email;
+
+  console.error(`\n--- Processing ${request.id} (session: ${sessionId}) ---`);
   console.error(`User: ${request.user_email} (${request.department}${groups.length > 0 ? `, groups: ${groups.join(", ")}` : ""})`);
   console.error(`Request: "${request.raw_text}"`);
 
@@ -84,6 +90,7 @@ async function processRequest(
     console.error("⚠️  Prompt injection detected - skipping LLM parsing");
     return {
       request_id: request.id,
+      session_id: sessionId,
       sub_decisions: [
         {
           sub_request_index: 0,
@@ -103,9 +110,15 @@ async function processRequest(
 
   const policy = policyEngine.getPolicy();
 
+  // Get conversation history for context (if session exists)
+  const conversationHistory = sessionStore.getConversationHistory(sessionId);
+  if (conversationHistory) {
+    console.error("Using conversation history for context...");
+  }
+
   // Parse intents using LLM (may return multiple)
   console.error("Parsing intents with LLM...");
-  const intents = await parseIntents(request.raw_text, policy);
+  const intents = await parseIntents(request.raw_text, policy, conversationHistory || undefined);
   console.error(`Parsed ${intents.length} intent(s): ${JSON.stringify(intents)}`);
 
   // Evaluate each intent against policy
@@ -124,10 +137,16 @@ async function processRequest(
   // Execute and generate multi-decision
   const multiDecision = executeMultiple(request, intents, policyResults, estimatedCosts);
 
+  // Add session_id to the decision
+  multiDecision.session_id = sessionId;
+
   // Log each intent/decision pair for observability
   intents.forEach((intent, index) => {
     logger.logSubDecision(request, intent, policyResults[index], multiDecision.sub_decisions[index], index);
   });
+
+  // Store in session for future context
+  sessionStore.addTurn(sessionId, request, intents, multiDecision);
 
   return multiDecision;
 }
@@ -150,6 +169,7 @@ async function main(): Promise<void> {
   const policyEngine = await PolicyEngine.fromFile(args.policyPath);
   const requests = await loadRequests(args.inputPath);
   const logger = new Logger();
+  const sessionStore = new SessionStore();
 
   console.error(`Loaded ${requests.length} requests`);
 
@@ -158,7 +178,7 @@ async function main(): Promise<void> {
 
   for (const request of requests) {
     try {
-      const decision = await processRequest(request, policyEngine, logger);
+      const decision = await processRequest(request, policyEngine, logger, sessionStore);
       decisions.push(decision);
     } catch (error) {
       console.error(`Error processing ${request.id}:`, error);

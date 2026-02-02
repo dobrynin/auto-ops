@@ -100,6 +100,7 @@ export interface SubDecision {
 
 export interface MultiDecision {
   request_id: string;
+  session_id?: string;
   sub_decisions: SubDecision[];
   summary: {
     total: number;

@@ -61,5 +61,19 @@
     "department": "Engineering",
     "groups": [],
     "raw_text": "Add me to #fde-team-updates and give me Jira access for the MOBILE project."
+  },
+  {
+    "id": "req_010",
+    "user_email": "iris_engineer@opendoor.com",
+    "department": "Engineering",
+    "groups": [],
+    "raw_text": "I need AWS access."
+  },
+  {
+    "id": "req_011",
+    "user_email": "iris_engineer@opendoor.com",
+    "department": "Engineering",
+    "groups": [],
+    "raw_text": "The staging-db database, read access please."
   }
 ]
