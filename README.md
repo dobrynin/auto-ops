@@ -196,6 +196,73 @@ Define per-system rules for sensitive operations:
 
 7. **No Retry Logic**: LLM API failures fail the request. Production would implement retries with exponential backoff.
 
+## Security TODOs
+
+The following potential security issues were identified by an automated security review agent. These should be addressed before production deployment.
+
+### High Severity
+
+- [ ] **User Identity Verification** (`src/index.ts:81-83`)
+  - `user_email`, `department`, and `groups` are trusted from user input without verification
+  - Attacker could spoof another user's email to access their session history
+  - Attacker could claim any department (e.g., "Security") to bypass access controls
+  - Attacker could claim group membership (e.g., "SRE") to access restricted resources
+  - **Fix:** Verify all identity fields against authoritative source (LDAP, Azure AD, AWS IAM)
+
+- [ ] **Weak Prompt Injection Detection** (`src/policy/rules.ts:5-21`)
+  - Regex patterns miss obfuscation techniques (homoglyphs, Unicode tricks, synonyms)
+  - Patterns are surface-level and can be bypassed by sophisticated attackers
+  - **Fix:** Implement semantic injection detection or use separate LLM call to analyze for manipulation
+
+- [ ] **Error Message Information Disclosure** (`src/index.ts:225`)
+  - Catch block exposes internal error details to users
+  - Could leak implementation details, file paths, or API errors
+  - **Fix:** Return generic error messages; log full details internally only
+
+### Medium Severity
+
+- [ ] **Unsafe Channel Name Handling** (`src/executor/payloads.ts:19`)
+  - No validation that channel names contain only allowed characters
+  - **Fix:** Validate against Slack naming rules (alphanumeric, hyphens, underscores)
+
+- [ ] **Hardware Cost Estimation Manipulation** (`src/policy/rules.ts:250-283`)
+  - String-based matching can be manipulated to trigger wrong cost estimates
+  - **Fix:** Replace with lookup against actual product catalog/SKUs
+
+- [ ] **In-Memory Spending Tracker** (`src/spending/index.ts`)
+  - Records lost on restart; no persistence or integrity checks
+  - **Fix:** Store in database with transaction isolation and tamper protection
+
+- [ ] **Session History Information Leakage** (`src/session/index.ts:98-121`)
+  - Full request text (potentially containing sensitive data) passed to LLM
+  - **Fix:** Redact sensitive information; store intent summaries only
+
+- [ ] **Insufficient LLM Output Validation** (`src/parser/llm-parser.ts:136-178`)
+  - No strict schema validation; no length limits on string fields
+  - **Fix:** Implement JSON Schema or Zod validation; add field length limits
+
+### Low Severity
+
+- [ ] **Missing Input Sanitization in Payloads** (`src/executor/payloads.ts`)
+  - User-supplied resource names directly embedded in payloads
+  - **Fix:** Validate resources against policy's allowed resource list
+
+- [ ] **Logging Contains Sensitive Information** (`src/observability/logger.ts:48`)
+  - Full user email, requests, and department info logged to stderr
+  - **Fix:** Implement log levels; redact sensitive fields in production
+
+- [ ] **No Rate Limiting**
+  - System vulnerable to request spam and brute force attacks
+  - **Fix:** Implement per-user and per-IP rate limiting
+
+- [ ] **No Audit Trail for Approvals**
+  - No tracking of who approved requests or when
+  - **Fix:** Implement approval audit trail with approver identity and timestamp
+
+- [ ] **Type Assertions in Executor** (`src/executor/index.ts:59,69`)
+  - `as Decision` casts bypass TypeScript type checking
+  - **Fix:** Properly construct typed objects without assertions
+
 ## Output Format
 
 ### Approved Request
