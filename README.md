@@ -41,31 +41,45 @@ npx tsx src/index.ts --input ./input.json --policy ./policy.json --output ./outp
 ## Architecture
 
 ```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│  Intent Parser  │────▶│  Policy Engine  │────▶│    Executor     │
-│   (LLM Layer)   │     │  (Guardrails)   │     │   (Output)      │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-        │                       │                       │
-        ▼                       ▼                       ▼
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│ Session Store   │     │ Spending Track  │     │  Blacklist      │
-│ (Conversation)  │     │ (90-day budget) │     │  (Offenders)    │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
+                              ┌─────────────────┐
+                              │   Blacklist     │
+                              │    Check        │
+                              └────────┬────────┘
+                                       │
+                                       ▼
+┌─────────────────┐           ┌─────────────────┐
+│  Session Store  │──context─▶│  Intent Parser  │
+│  (Conversation) │           │   (LLM Layer)   │
+└─────────────────┘           └────────┬────────┘
+                                       │
+                                       ▼
+┌─────────────────┐           ┌─────────────────┐
+│ Spending Track  │──budget──▶│  Policy Engine  │
+│ (90-day window) │           │  (Guardrails)   │
+└─────────────────┘           └────────┬────────┘
+                                       │
+                                       ▼
+                              ┌─────────────────┐
+                              │    Executor     │
+                              │    (Output)     │
+                              └─────────────────┘
 ```
 
 ### Components
 
-1. **Intent Parser**: Uses Claude to extract structured intents from natural language. Supports multiple intents per message (e.g., "Add me to Slack and give me AWS access" → 2 intents).
+1. **Blacklist Check**: First gate - checks if user is blacklisted from previous prompt injection attempts. Blacklisted users are immediately denied without further processing.
 
-2. **Policy Engine**: Validates each intent against configurable security policies including department access, sensitive actions, budget limits, and group-based restrictions.
+2. **Intent Parser**: Uses Claude to extract structured intents from natural language. Supports multiple intents per message (e.g., "Add me to Slack and give me AWS access" → 2 intents). Uses Session Store for conversation context.
 
-3. **Executor**: Generates service-specific JSON payloads for approved requests, returning a `MultiDecision` with individual sub-decisions and summary statistics.
+3. **Policy Engine**: Validates each intent against configurable security policies including department access, sensitive actions, budget limits, and group-based restrictions. Uses Spending Tracker for cumulative budget checks.
 
-4. **Session Store**: Maintains conversation history per user (keyed by email) with 15-minute TTL. Enables follow-up clarifications without restating context.
+4. **Executor**: Generates service-specific JSON payloads for approved requests, returning a `MultiDecision` with individual sub-decisions and summary statistics.
 
-5. **Spending Tracker**: Tracks cumulative hardware spending per user over a 90-day rolling window. Prevents budget circumvention through multiple small requests.
+5. **Session Store**: Maintains conversation history per user (keyed by email) with 15-minute TTL. Enables follow-up clarifications without restating context.
 
-6. **Blacklist Store**: Tracks prompt injection attempts. First offense triggers a warning; repeat offenses result in 24-hour blacklist.
+6. **Spending Tracker**: Tracks cumulative hardware spending per user over a 90-day rolling window. Prevents budget circumvention through multiple small requests.
+
+7. **Blacklist Store**: Tracks prompt injection attempts. First offense triggers a warning; repeat offenses result in 24-hour blacklist.
 
 ## AI Safety Section
 
