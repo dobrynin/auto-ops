@@ -5,12 +5,44 @@ import { generatePayload } from "./payloads.js";
 
 const CONFIDENCE_THRESHOLD = 0.7;
 
+/**
+ * Check if an intent requires clarification regardless of confidence score.
+ * These conditions indicate missing critical information that cannot be inferred.
+ */
+function requiresMandatoryClarification(intent: ParsedIntent): boolean {
+  // Unknown action type always needs clarification
+  if (intent.action_type === "UNKNOWN") {
+    return true;
+  }
+
+  // Access requests without a target resource need clarification
+  if (intent.action_type === "ACCESS_REQUEST" && !intent.target_resource) {
+    return true;
+  }
+
+  // Hardware requests without specifying an item need clarification
+  if (intent.action_type === "HARDWARE_REQUEST" && !intent.target_resource) {
+    return true;
+  }
+
+  return false;
+}
+
 export function execute(
   request: InputRequest,
   intent: ParsedIntent,
   policyResult: PolicyResult,
   estimatedCost?: number
 ): Decision {
+  // Check for mandatory clarification conditions first (regardless of confidence)
+  if (requiresMandatoryClarification(intent)) {
+    return {
+      request_id: request.id,
+      status: "CLARIFICATION_NEEDED",
+      clarification_questions: generateClarificationQuestions(intent),
+    };
+  }
+
   // Low confidence triggers clarification
   if (intent.confidence < CONFIDENCE_THRESHOLD) {
     return {
@@ -78,7 +110,7 @@ function generateClarificationQuestions(intent: ParsedIntent): string[] {
     );
   }
 
-  if (!intent.target_system) {
+  if (!intent.target_system && intent.action_type === "ACCESS_REQUEST") {
     questions.push(
       "Which system or tool do you need access to? (e.g., Slack, AWS, Jira)"
     );
@@ -87,6 +119,12 @@ function generateClarificationQuestions(intent: ParsedIntent): string[] {
   if (!intent.target_resource && intent.action_type === "ACCESS_REQUEST") {
     questions.push(
       "What specific resource do you need access to? (e.g., channel name, database, project)"
+    );
+  }
+
+  if (!intent.target_resource && intent.action_type === "HARDWARE_REQUEST") {
+    questions.push(
+      "What hardware item do you need? (e.g., MacBook Pro, monitor, keyboard)"
     );
   }
 

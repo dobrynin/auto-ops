@@ -38,7 +38,7 @@ export function generateAwsPayload(
     payload: {
       user: userEmail,
       role: roleMap[requestedAction || "read_access"] || "readonly-role",
-      resource: resource || "default",
+      resource,
     },
   };
 }
@@ -59,7 +59,7 @@ export function generateJiraPayload(
     action: "JIRA_ACCESS_GRANT",
     payload: {
       user: userEmail,
-      project: project || "default",
+      project,
       access: accessMap[requestedAction || "read_access"] || "read",
     },
   };
@@ -102,22 +102,23 @@ export function generatePayload(
 
   switch (intent.action_type) {
     case "ACCESS_REQUEST":
+      // Require target_resource for access requests
+      if (!intent.target_resource) {
+        return null;
+      }
       switch (system) {
         case "slack":
-          return generateSlackPayload(
-            userEmail,
-            intent.target_resource || "general"
-          );
+          return generateSlackPayload(userEmail, intent.target_resource);
         case "aws":
           return generateAwsPayload(
             userEmail,
-            intent.target_resource || "default",
+            intent.target_resource,
             intent.requested_action
           );
         case "jira":
           return generateJiraPayload(
             userEmail,
-            intent.target_resource || "default",
+            intent.target_resource,
             intent.requested_action
           );
         default:
@@ -131,9 +132,13 @@ export function generatePayload(
       return null;
 
     case "HARDWARE_REQUEST":
+      // Require target_resource for hardware requests
+      if (!intent.target_resource) {
+        return null;
+      }
       return generateHardwarePayload(
         userEmail,
-        intent.target_resource || "Unknown item",
+        intent.target_resource,
         estimatedCost || 0
       );
 
