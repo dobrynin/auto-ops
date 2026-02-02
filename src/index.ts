@@ -7,6 +7,7 @@ import { executeMultiple } from "./executor/index.js";
 import { Logger } from "./observability/logger.js";
 import { SessionStore } from "./session/index.js";
 import { SpendingTracker } from "./spending/index.js";
+import { BlacklistStore } from "./blacklist/index.js";
 import type { InputRequest, MultiDecision } from "./types.js";
 
 interface CliArgs {
@@ -76,7 +77,8 @@ async function processRequest(
   policyEngine: PolicyEngine,
   logger: Logger,
   sessionStore: SessionStore,
-  spendingTracker: SpendingTracker
+  spendingTracker: SpendingTracker,
+  blacklistStore: BlacklistStore
 ): Promise<MultiDecision> {
   const groups = request.groups || [];
 
@@ -87,8 +89,38 @@ async function processRequest(
   console.error(`User: ${request.user_email} (${request.department}${groups.length > 0 ? `, groups: ${groups.join(", ")}` : ""})`);
   console.error(`Request: "${request.raw_text}"`);
 
+  // Check if user is blacklisted
+  if (blacklistStore.isBlacklisted(request.user_email)) {
+    const expiry = blacklistStore.getBlacklistExpiry(request.user_email);
+    console.error(`🚫 User ${request.user_email} is blacklisted until ${expiry?.toISOString()}`);
+    return {
+      request_id: request.id,
+      session_id: sessionId,
+      sub_decisions: [
+        {
+          sub_request_index: 0,
+          status: "DENIED",
+          reason: "Request rejected: Your account has been temporarily suspended due to policy violations",
+        },
+      ],
+      summary: {
+        total: 1,
+        approved: 0,
+        denied: 1,
+        requires_approval: 0,
+        clarification_needed: 0,
+      },
+    };
+  }
+
   // Check for prompt injection before LLM parsing (blocks entire request)
   if (policyEngine.detectInjection(request.raw_text)) {
+    // Record the attempt (may result in blacklisting)
+    const { isRepeatOffense } = blacklistStore.recordAttempt(request.user_email, request.raw_text);
+    const reason = isRepeatOffense
+      ? "Request rejected: Your account has been temporarily suspended due to repeated policy violations"
+      : "Request rejected: Potential prompt injection detected. Further attempts may result in account suspension.";
+
     console.error("⚠️  Prompt injection detected - skipping LLM parsing");
     return {
       request_id: request.id,
@@ -97,7 +129,7 @@ async function processRequest(
         {
           sub_request_index: 0,
           status: "DENIED",
-          reason: "Request rejected: Potential prompt injection detected",
+          reason,
         },
       ],
       summary: {
@@ -204,6 +236,7 @@ async function main(): Promise<void> {
   const logger = new Logger();
   const sessionStore = new SessionStore();
   const spendingTracker = new SpendingTracker();
+  const blacklistStore = new BlacklistStore();
 
   console.error(`Loaded ${requests.length} requests`);
 
@@ -212,7 +245,7 @@ async function main(): Promise<void> {
 
   for (const request of requests) {
     try {
-      const decision = await processRequest(request, policyEngine, logger, sessionStore, spendingTracker);
+      const decision = await processRequest(request, policyEngine, logger, sessionStore, spendingTracker, blacklistStore);
       decisions.push(decision);
     } catch (error) {
       console.error(`Error processing ${request.id}:`, error);
