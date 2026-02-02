@@ -423,6 +423,46 @@ npm run typecheck
 npm start 2>logs.json
 ```
 
+## Testing
+
+The project uses [Vitest](https://vitest.dev/) for testing. Tests cover policy evaluation, executor logic, blacklist behavior, and spending tracking.
+
+```bash
+# Run all tests
+npm test
+
+# Run tests in watch mode (re-runs on file changes)
+npm run test:watch
+```
+
+### Test Coverage
+
+| Test File | Tests | Coverage |
+|-----------|-------|----------|
+| `policy.test.ts` | 20 | PolicyEngine: department access, resource restrictions, budget limits, prompt injection detection, hardware cost estimation |
+| `executor.test.ts` | 13 | Executor: mandatory clarification, confidence thresholds, payload generation, multi-intent handling |
+| `blacklist.test.ts` | 12 | BlacklistStore: warning/blacklist flow, expiry, admin functions |
+| `spending.test.ts` | 11 | SpendingTracker: cumulative spending, rolling window, per-user isolation |
+
+### Test Scenarios from input.json
+
+Tests validate expected behavior for each request in `input.json`:
+
+| Request | Scenario | Expected Outcome |
+|---------|----------|------------------|
+| req_001 | Engineering → Slack #fde-team-updates | REQUIRES_APPROVAL (IT) |
+| req_002 | Finance → AWS | DENIED (not in allowed_systems) |
+| req_003 | Intern → MacBook Pro M3 Max | DENIED (exceeds $1500 budget) |
+| req_004 | Operations → Jira | DENIED (no role defined) |
+| req_005 | Security → revoke access | APPROVED |
+| req_006 | Prompt injection attempt | DENIED (injection detected) |
+| req_007 | SRE → write prod-db | REQUIRES_APPROVAL (has group permission) |
+| req_008 | Engineer → write prod-db | DENIED (no SRE group) |
+| req_009 | Engineer → Jira MOBILE | DENIED (resource not in policy) |
+| req_011 | Engineer → read staging-db | APPROVED |
+| req_012 | Intern → MacBook Air ($1200) | APPROVED |
+| req_013 | Intern → 4K monitor (after req_012) | DENIED (cumulative $2000 > $1500) |
+
 ## Extensibility
 
 ### Adding a New SaaS System
