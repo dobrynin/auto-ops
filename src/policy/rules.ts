@@ -214,6 +214,7 @@ export function evaluateSlackChannel(
 export function evaluateHardwareBudget(
   department: string,
   estimatedCost: number,
+  currentSpending: number,
   policy: Policy
 ): RuleResult {
   const rolePolicy = policy.roles[department];
@@ -233,10 +234,13 @@ export function evaluateHardwareBudget(
     };
   }
 
-  if (estimatedCost > rolePolicy.max_hardware_budget) {
+  const totalAfterRequest = currentSpending + estimatedCost;
+
+  if (totalAfterRequest > rolePolicy.max_hardware_budget) {
+    const remaining = Math.max(0, rolePolicy.max_hardware_budget - currentSpending);
     return {
       allowed: false,
-      reason: `Hardware request denied: The requested item exceeds your department's budget allowance`,
+      reason: `Hardware request denied: This would exceed your budget. You have $${remaining.toLocaleString()} remaining of your $${rolePolicy.max_hardware_budget.toLocaleString()} allowance (90-day rolling window).`,
     };
   }
 
@@ -282,7 +286,8 @@ export function evaluateFullPolicy(
   intent: ParsedIntent,
   department: string,
   groups: string[],
-  policy: Policy
+  policy: Policy,
+  currentHardwareSpending: number = 0
 ): PolicyResult {
   const rulesChecked: string[] = [];
 
@@ -313,7 +318,7 @@ export function evaluateFullPolicy(
   if (intent.action_type === "HARDWARE_REQUEST") {
     rulesChecked.push("hardware_budget_check");
     const estimatedCost = estimateHardwareCost(intent.target_resource || "");
-    const budgetResult = evaluateHardwareBudget(department, estimatedCost, policy);
+    const budgetResult = evaluateHardwareBudget(department, estimatedCost, currentHardwareSpending, policy);
     return { ...budgetResult, rules_checked: rulesChecked };
   }
 

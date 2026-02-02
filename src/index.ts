@@ -6,6 +6,7 @@ import { PolicyEngine } from "./policy/index.js";
 import { executeMultiple } from "./executor/index.js";
 import { Logger } from "./observability/logger.js";
 import { SessionStore } from "./session/index.js";
+import { SpendingTracker } from "./spending/index.js";
 import type { InputRequest, MultiDecision } from "./types.js";
 
 interface CliArgs {
@@ -74,7 +75,8 @@ async function processRequest(
   request: InputRequest,
   policyEngine: PolicyEngine,
   logger: Logger,
-  sessionStore: SessionStore
+  sessionStore: SessionStore,
+  spendingTracker: SpendingTracker
 ): Promise<MultiDecision> {
   const groups = request.groups || [];
 
@@ -121,21 +123,52 @@ async function processRequest(
   const intents = await parseIntents(request.raw_text, policy, conversationHistory || undefined);
   console.error(`Parsed ${intents.length} intent(s): ${JSON.stringify(intents)}`);
 
-  // Evaluate each intent against policy
-  const policyResults = intents.map((intent) =>
-    policyEngine.evaluate(intent, request.department, groups)
-  );
-  console.error(`Policy results: ${JSON.stringify(policyResults)}`);
+  // Get current hardware spending for budget checks
+  const currentSpending = spendingTracker.getSpending(request.user_email);
+  if (currentSpending > 0) {
+    console.error(`Current hardware spending (90-day): $${currentSpending.toLocaleString()}`);
+  }
 
-  // Get estimated costs for hardware requests
+  // Get estimated costs for hardware requests (needed for both policy eval and spending tracking)
   const estimatedCosts = intents.map((intent) =>
     intent.action_type === "HARDWARE_REQUEST"
       ? policyEngine.getEstimatedCost(intent.target_resource || "")
       : undefined
   );
 
+  // Evaluate each intent against policy
+  // Track cumulative spending within this request for accurate budget checks
+  let pendingSpending = currentSpending;
+  const policyResults = intents.map((intent, index) => {
+    const result = policyEngine.evaluate(intent, request.department, groups, pendingSpending);
+    // If this hardware request would be approved/pending, add to pending spending for subsequent checks
+    if (intent.action_type === "HARDWARE_REQUEST" && result.allowed && estimatedCosts[index]) {
+      pendingSpending += estimatedCosts[index]!;
+    }
+    return result;
+  });
+  console.error(`Policy results: ${JSON.stringify(policyResults)}`);
+
   // Execute and generate multi-decision
   const multiDecision = executeMultiple(request, intents, policyResults, estimatedCosts);
+
+  // Record hardware spending for approved/pending requests
+  intents.forEach((intent, index) => {
+    const subDecision = multiDecision.sub_decisions[index];
+    if (
+      intent.action_type === "HARDWARE_REQUEST" &&
+      estimatedCosts[index] &&
+      (subDecision.status === "APPROVED" || subDecision.status === "REQUIRES_APPROVAL")
+    ) {
+      spendingTracker.recordSpending(
+        request.id,
+        request.user_email,
+        estimatedCosts[index]!,
+        subDecision.status as "APPROVED" | "REQUIRES_APPROVAL"
+      );
+      console.error(`Recorded $${estimatedCosts[index]} hardware spending for ${request.user_email}`);
+    }
+  });
 
   // Add session_id to the decision
   multiDecision.session_id = sessionId;
@@ -170,6 +203,7 @@ async function main(): Promise<void> {
   const requests = await loadRequests(args.inputPath);
   const logger = new Logger();
   const sessionStore = new SessionStore();
+  const spendingTracker = new SpendingTracker();
 
   console.error(`Loaded ${requests.length} requests`);
 
@@ -178,7 +212,7 @@ async function main(): Promise<void> {
 
   for (const request of requests) {
     try {
-      const decision = await processRequest(request, policyEngine, logger, sessionStore);
+      const decision = await processRequest(request, policyEngine, logger, sessionStore, spendingTracker);
       decisions.push(decision);
     } catch (error) {
       console.error(`Error processing ${request.id}:`, error);

@@ -75,5 +75,19 @@
     "department": "Engineering",
     "groups": [],
     "raw_text": "The staging-db database, read access please."
+  },
+  {
+    "id": "req_012",
+    "user_email": "jake_intern@opendoor.com",
+    "department": "Interns",
+    "groups": [],
+    "raw_text": "I need a MacBook Air for my internship."
+  },
+  {
+    "id": "req_013",
+    "user_email": "jake_intern@opendoor.com",
+    "department": "Interns",
+    "groups": [],
+    "raw_text": "Also need a 4K monitor please."
   }
 ]
