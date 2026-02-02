@@ -8,6 +8,8 @@ export interface ServiceConfig {
   actions: string[];
   resources: string[];
   sensitive_actions?: Record<string, "REQUIRES_APPROVAL" | "DENY">;
+  // Resource restrictions: resource -> action -> allowed groups
+  resource_restrictions?: Record<string, Record<string, string[]>>;
   // Slack-specific
   auto_approve_channels?: string[];
   restricted_channels?: string[];

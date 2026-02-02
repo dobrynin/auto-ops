@@ -82,5 +82,6 @@ export interface InputRequest {
   id: string;
   user_email: string;
   department: string;
+  groups?: string[];
   raw_text: string;
 }

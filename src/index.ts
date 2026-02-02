@@ -74,8 +74,9 @@ async function processRequest(
   policyEngine: PolicyEngine,
   logger: Logger
 ): Promise<Decision> {
+  const groups = request.groups || [];
   console.error(`\n--- Processing ${request.id} ---`);
-  console.error(`User: ${request.user_email} (${request.department})`);
+  console.error(`User: ${request.user_email} (${request.department}${groups.length > 0 ? `, groups: ${groups.join(", ")}` : ""})`);
   console.error(`Request: "${request.raw_text}"`);
 
   // Check for prompt injection before LLM parsing
@@ -100,6 +101,7 @@ async function processRequest(
   const policyResult = policyEngine.evaluate(
     intent,
     request.department,
+    groups,
     request.raw_text
   );
   console.error(`Policy result: ${JSON.stringify(policyResult)}`);

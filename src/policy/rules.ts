@@ -95,6 +95,62 @@ export function evaluateSensitiveAction(
   return { allowed: true };
 }
 
+export function evaluateResourceRestrictions(
+  targetSystem: string,
+  targetResource: string | null,
+  requestedAction: string | null,
+  department: string,
+  groups: string[],
+  policy: Policy
+): PolicyResult {
+  if (!targetResource || !requestedAction) {
+    return { allowed: true };
+  }
+
+  // Look up service config (case-insensitive)
+  const serviceKey = Object.keys(policy.services).find(
+    (k) => k.toLowerCase() === targetSystem.toLowerCase()
+  );
+
+  if (!serviceKey) {
+    return { allowed: true };
+  }
+
+  const serviceConfig = policy.services[serviceKey];
+  const resourceRestrictions = serviceConfig.resource_restrictions;
+
+  if (!resourceRestrictions) {
+    return { allowed: true };
+  }
+
+  // Check if this resource has restrictions
+  const resourceRules = resourceRestrictions[targetResource];
+  if (!resourceRules) {
+    return { allowed: true };
+  }
+
+  // Check if this action has allowed groups defined
+  const allowedGroups = resourceRules[requestedAction];
+  if (!allowedGroups) {
+    return { allowed: true };
+  }
+
+  // Check if user's department or any of their groups is in the allowed list
+  const userMemberships = [department, ...groups];
+  const hasAccess = allowedGroups.some((group) =>
+    userMemberships.includes(group)
+  );
+
+  if (!hasAccess) {
+    return {
+      allowed: false,
+      reason: `'${requestedAction}' on '${targetResource}' is restricted to groups: ${allowedGroups.join(", ")}. User is in: ${userMemberships.join(", ")}`,
+    };
+  }
+
+  return { allowed: true };
+}
+
 export function evaluateSlackChannel(
   channel: string,
   policy: Policy
@@ -204,6 +260,7 @@ export function estimateHardwareCost(item: string): number {
 export function evaluateFullPolicy(
   intent: ParsedIntent,
   department: string,
+  groups: string[],
   rawText: string,
   policy: Policy
 ): PolicyResult {
@@ -261,6 +318,19 @@ export function evaluateFullPolicy(
     );
     if (!sensitiveResult.allowed) {
       return sensitiveResult;
+    }
+
+    // Check resource restrictions (group-based access)
+    const resourceResult = evaluateResourceRestrictions(
+      intent.target_system,
+      intent.target_resource,
+      intent.requested_action,
+      department,
+      groups,
+      policy
+    );
+    if (!resourceResult.allowed) {
+      return resourceResult;
     }
 
     // Special handling for Slack channels

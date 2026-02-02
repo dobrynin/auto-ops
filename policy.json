@@ -3,6 +3,13 @@
     "AWS": {
       "actions": ["read_access", "write_access", "admin_access"],
       "resources": ["prod-db", "staging-db", "analytics-db", "s3-data-bucket"],
+      "resource_restrictions": {
+        "prod-db": {
+          "read_access": ["Engineering", "SRE", "Security"],
+          "write_access": ["SRE", "Security"],
+          "admin_access": ["Security"]
+        }
+      },
       "sensitive_actions": {
         "write_access": "REQUIRES_APPROVAL",
         "admin_access": "DENY"
