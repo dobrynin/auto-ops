@@ -54,6 +54,7 @@ export function execute(
       service: payloadResult.service,
       action: payloadResult.action,
       reason: policyResult.reason,
+      approver_group: policyResult.approver_group,
       payload: payloadResult.payload,
     } as Decision;
   }

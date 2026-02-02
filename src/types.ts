@@ -69,6 +69,7 @@ export interface RequiresApprovalDecision<A extends Action = Action>
   service: Service;
   action: A;
   reason: string;
+  approver_group?: string; // Who should approve this request
   payload: PayloadByAction[A];
 }
 

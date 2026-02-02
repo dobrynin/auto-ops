@@ -10,27 +10,47 @@
           "admin_access": ["Security"]
         }
       },
+      "default_approver": "Security",
       "sensitive_actions": {
-        "write_access": "REQUIRES_APPROVAL",
+        "write_access": { "policy": "REQUIRES_APPROVAL" },
         "admin_access": "DENY"
       }
     },
     "Slack": {
       "actions": ["join_channel", "leave_channel"],
-      "resources": ["#general", "#random", "#social", "#announcements", "#fde-team-updates", "#engineering"],
-      "auto_approve_channels": ["#general", "#random", "#social", "#announcements"],
-      "restricted_channels": ["#executive-confidential", "#hr-sensitive"]
+      "resources": [
+        "#general",
+        "#random",
+        "#social",
+        "#announcements",
+        "#fde-team-updates",
+        "#engineering"
+      ],
+      "auto_approve_channels": [
+        "#general",
+        "#random",
+        "#social",
+        "#announcements"
+      ],
+      "restricted_channels": ["#executive-confidential", "#hr-sensitive"],
+      "channel_approver": "IT"
     },
     "Jira": {
       "actions": ["read_access", "write_access", "admin_access"],
       "resources": ["ENGINEERING", "PRODUCT", "SUPPORT"]
     },
     "Okta": {
-      "actions": ["create_user", "delete_user", "assign_admin", "revoke_access"],
+      "actions": [
+        "create_user",
+        "delete_user",
+        "assign_admin",
+        "revoke_access"
+      ],
       "resources": [],
+      "default_approver": "IT",
       "sensitive_actions": {
-        "create_user": "REQUIRES_APPROVAL",
-        "delete_user": "REQUIRES_APPROVAL",
+        "create_user": { "policy": "REQUIRES_APPROVAL" },
+        "delete_user": { "policy": "REQUIRES_APPROVAL" },
         "assign_admin": "DENY"
       }
     },
@@ -40,7 +60,13 @@
     },
     "Hardware": {
       "actions": ["request"],
-      "resources": ["macbook-pro", "macbook-air", "monitor-4k", "keyboard", "mouse"]
+      "resources": [
+        "macbook-pro",
+        "macbook-air",
+        "monitor-4k",
+        "keyboard",
+        "mouse"
+      ]
     }
   },
   "roles": {

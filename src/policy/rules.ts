@@ -77,18 +77,36 @@ export function evaluateSensitiveAction(
     return { allowed: true };
   }
 
-  const result = sensitiveActions[requestedAction];
-  if (result === "DENY") {
+  const actionConfig = sensitiveActions[requestedAction];
+  if (!actionConfig) {
+    return { allowed: true };
+  }
+
+  // Extract policy and approver_group from config
+  let actionPolicy: string;
+  let approverGroup: string | undefined;
+
+  if (typeof actionConfig === "string") {
+    actionPolicy = actionConfig;
+    approverGroup = serviceConfig.default_approver;
+  } else {
+    actionPolicy = actionConfig.policy;
+    approverGroup = actionConfig.approver_group ?? serviceConfig.default_approver;
+  }
+
+  if (actionPolicy === "DENY") {
     return {
       allowed: false,
       reason: `Policy violation: '${requestedAction}' to '${targetSystem}' is explicitly denied`,
     };
   }
-  if (result === "REQUIRES_APPROVAL") {
+  if (actionPolicy === "REQUIRES_APPROVAL") {
+    const approverText = approverGroup ? ` from ${approverGroup}` : "";
     return {
       allowed: true,
       requires_approval: true,
-      reason: `'${requestedAction}' to '${targetSystem}' requires manual approval`,
+      reason: `'${requestedAction}' to '${targetSystem}' requires manual approval${approverText}`,
+      approver_group: approverGroup,
     };
   }
 
@@ -183,10 +201,13 @@ export function evaluateSlackChannel(
   }
 
   // Channel not in auto-approve list - requires approval
+  const approverGroup = slackConfig.channel_approver ?? slackConfig.default_approver;
+  const approverText = approverGroup ? ` from ${approverGroup}` : "";
   return {
     allowed: true,
     requires_approval: true,
-    reason: `Channel '${channel}' is not in auto-approve list and requires manual approval`,
+    reason: `Channel '${channel}' is not in auto-approve list and requires manual approval${approverText}`,
+    approver_group: approverGroup,
   };
 }
 
